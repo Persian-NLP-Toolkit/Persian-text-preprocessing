@@ -6,7 +6,7 @@ LinkedIn: https://www.linkedin.com/in/parvvaresh/
 
 import re
 
-def informal2formal(sentence):
+def informal2formal(text : str) -> str:
     # Define a dictionary containing informal Persian phrases (keys)
     # and their formal equivalents (values).
     conversion_dict = {
@@ -68,7 +68,7 @@ def informal2formal(sentence):
     # Replace all occurrences of the informal pattern in the input sentence
     # with its corresponding formal equivalent.
     for pattern, formal in conversion_dict.items():
-        sentence = re.sub(pattern, formal, sentence)
+        text = re.sub(pattern, formal, text)
 
     # Return the modified (formalized) sentence.
-    return sentence
+    return text
