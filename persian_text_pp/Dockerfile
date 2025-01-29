@@ -1,2 +1,0 @@
-FROM baseImage
-# update it
