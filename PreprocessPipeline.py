@@ -1,13 +1,12 @@
-from persian_text_pp.FarsiLanguageRecognition import detect_farsi
+from persian_text_pp.FarsiLanguageRecognition import is_farsi
 from persian_text_pp.Normalize import normalize_persian
 from persian_text_pp.RemoveDiacritics import remove_diacritics
 from persian_text_pp.RemovePunctuations import remove_punctuations
-from persian_text_pp.RemoveRepeatingChar import remove_repeating_char
+from persian_text_pp.RemoveRepeatingChar import remove_repeating_chars
 from persian_text_pp.RemoveStopWords import remove_stopwords
 from persian_text_pp.Tokenize import tokenize
-from persian_text_pp.Informal2Formal import informal_to_formal
+from persian_text_pp.Informal2Formal import informal2formal
 from persian_text_pp.Lemmatizer import lemmatize
-from persian_text_pp.Lemmatizer import lemmatize_persian_tokens
 
 def preprocess_pipeline(
     text,
@@ -51,7 +50,7 @@ def preprocess_pipeline(
         list: The preprocessed tokens.
     """
     # Step 1: Detect if the text is Persian
-    if not detect_farsi(text):
+    if not is_farsi(text):
         raise ValueError("The input text is not in Persian.")
 
     # Step 2: Normalize the text with detailed options
@@ -75,10 +74,10 @@ def preprocess_pipeline(
     text = remove_punctuations(text)
 
     # Step 5: Remove repeating characters
-    text = remove_repeating_char(text)
+    text = remove_repeating_chars(text)
 
     # Step 6: Convert informal text to formal
-    text = informal_to_formal(text)
+    #text = informal2formal(text)
 
     # Step 7: Tokenize the text
     tokens = tokenize(text)
@@ -90,3 +89,21 @@ def preprocess_pipeline(
     tokens = lemmatize(tokens)
 
     return tokens
+
+
+# Example usage 
+# text = "سلام!لطفاً ایمیل test@example.com و شماره ۱۲۳۴۵۶ را بررسی کن :)"
+# # Execute pipeline with explicit parameters (no defaults)
+# tokens = preprocess_pipeline(
+#     text,
+#     unify_chars=False,
+#     refine_punc_spacing=False,
+#     remove_html=True,
+#     replace_email_with="[]",
+#     replace_number_with="<>",
+#     replace_url_with="<>",
+#     replace_mobile_number_with="<>",
+#     replace_emoji_with="<>",
+#     replace_home_number_with="<>"
+# )
+# print(tokens)
