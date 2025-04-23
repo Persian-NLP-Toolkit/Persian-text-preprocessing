@@ -10,5 +10,5 @@ def remove_stopwords(tokens: list) -> list:
     Returns:
         list: A list of tokens with stopwords removed.
     """
-    stopwords = get_stopwords_list()
+    stopwords = set(get_stopwords_list())
     return [token for token in tokens if token not in stopwords]
