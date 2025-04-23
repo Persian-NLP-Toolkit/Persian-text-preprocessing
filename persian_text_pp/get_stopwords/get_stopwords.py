@@ -15,7 +15,10 @@ def get_stopwords_list() -> list:
     Returns:
         list: A unique list of Persian stopwords.
     """
-    file_list = glob.glob('./persian_stopwords' + '/*.txt')
+    base_path = os.path.dirname(__file__)
+
+    # Create full path to persian_stopwords/*.txt
+    file_list = glob.glob(os.path.join(base_path, 'persian_stopwords', '*.txt'))
     stop_words = []
 
     # Iterate over each file found in the directory.
