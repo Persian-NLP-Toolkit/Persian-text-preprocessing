@@ -1,8 +1,11 @@
 import re
 
-_HASHTAG_RE = re.compile(r"(?<!\w)#([A-Za-z0-9_]+|[\u0600-\u06FF0-9_]+)")
+# Avoid HTML entities like '&#123;' via negative lookbehind for '&'.
+HASHTAG_RE = re.compile(r"(?<!\w)(?<!&)#([A-Za-z0-9_]+|[\u0600-\u06FF0-9_]+)")
+LABEL = "hashtag"
+PATTERN = HASHTAG_RE  # exported for metrics
 
 
 def process(text: str) -> str:
     """Mask hashtags -> [HASHTAG]."""
-    return _HASHTAG_RE.sub("[HASHTAG]", text)
+    return HASHTAG_RE.sub("[HASHTAG]", text)

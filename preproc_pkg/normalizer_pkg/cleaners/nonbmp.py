@@ -1,8 +1,10 @@
 import re
 
-_NON_BMP_RE = re.compile(r"[^\u0000-\uFFFF]")
+NON_BMP_RE = re.compile(r"[^\u0000-\uFFFF]")
+LABEL = "nonbmp"
+PATTERN = NON_BMP_RE  # exported for metrics (matches removed)
 
 
 def process(text: str) -> str:
     """Remove non-BMP code-points (emoji, fancy symbols)."""
-    return _NON_BMP_RE.sub(" ", text)
+    return NON_BMP_RE.sub(" ", text)

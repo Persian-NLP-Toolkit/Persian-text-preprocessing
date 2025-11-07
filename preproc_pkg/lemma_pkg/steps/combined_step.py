@@ -1,11 +1,10 @@
 from __future__ import annotations
 from typing import List
-import re
 from hazm import Lemmatizer, word_tokenize
 from parsivar import FindStems
 from .base import LemmaStep
-
-_SPLIT = re.compile(r"[#&|/]+")
+from ...utils.constants import SPLIT_RE, PUNCT
+from ...utils.textutils import detokenize
 
 
 class CombinedLemmaStep(LemmaStep):
@@ -15,26 +14,9 @@ class CombinedLemmaStep(LemmaStep):
         self._hz = Lemmatizer()
         self._pv = FindStems()
         self._past = prefer_past
-        self._punct = {
-            "،",
-            ".",
-            "!",
-            "؟",
-            "؛",
-            ":",
-            "…",
-            "»",
-            "«",
-            "(",
-            ")",
-            "[",
-            "]",
-            ",",
-            "؛",
-        }
 
     def _pick(self, s: str) -> str:
-        parts = _SPLIT.split(s)
+        parts = SPLIT_RE.split(s)
         if len(parts) > 1:
             return parts[0] if self._past else parts[1]
         return s
@@ -45,12 +27,9 @@ class CombinedLemmaStep(LemmaStep):
         for t in toks:
             hz = self._hz.lemmatize(t)
             chosen = self._pick(hz)
-            if chosen != t or _SPLIT.search(hz):
+            if chosen != t or SPLIT_RE.search(hz):
                 out_tokens.append(chosen)
             else:
                 pv = self._pv.convert_to_stem(t)
                 out_tokens.append(self._pick(pv))
-        out = ""
-        for tok in out_tokens:
-            out = (out.rstrip() + tok) if tok in self._punct else (out + " " + tok)
-        return out.strip()
+        return detokenize(out_tokens, PUNCT)

@@ -22,7 +22,7 @@ def create_normalizer_pipeline(**kwargs):
 
 
 def create_formal_pipeline(**kwargs):
-    """Factory wrapper for informal→formal pipeline."""
+    """Factory wrapper for informal->formal pipeline."""
     return _lazy("preproc_pkg.formal_pkg.pipeline", "create_formal_pipeline", **kwargs)
 
 

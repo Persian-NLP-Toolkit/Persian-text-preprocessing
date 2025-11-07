@@ -1,8 +1,10 @@
 import re
 
-_HTML_RE = re.compile(r"<[^>]+>")
+HTML_RE = re.compile(r"<[^>]+>")
+LABEL = "html"
+PATTERN = HTML_RE  # exported for metrics (matches removed)
 
 
 def process(text: str) -> str:
     """Strip HTML/XML tags."""
-    return _HTML_RE.sub("", text)
+    return HTML_RE.sub("", text)

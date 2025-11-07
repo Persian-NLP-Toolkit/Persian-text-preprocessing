@@ -1,14 +1,15 @@
 # Detect Latin-only Persian sentences and convert via Parsivar.
+import re
 from parsivar import Normalizer as _PV
 
 _par_ping = _PV(pinglish_conversion_needed=True)
+_LATIN = re.compile(r"[A-Za-z]")
+_PERSIAN = re.compile(r"[\u0600-\u06FF]")
 
 
 def is_pinglish(text: str) -> bool:
-    """True iff text has Latin letters and no Persian letters."""
-    return any("A" <= ch <= "z" for ch in text) and not any(
-        "\u0600" <= ch <= "\u06ff" for ch in text
-    )
+    """True iff text contains Latin letters and no Persian letters."""
+    return bool(_LATIN.search(text)) and not bool(_PERSIAN.search(text))
 
 
 def convert(text: str) -> str:
