@@ -20,28 +20,21 @@ class FormalPipeline:
         )
 
 
-_MI = re.compile(r"(?<!\S)(ن?می)\s+(?=[اآءئأإآبتثجچحخدذرزسشصضطظعغفقکگلمنوهی])")
+_PERS_LET = r"[اآءئأإآبتثجچحخدذرزسشصضطظعغفقکگلمنوهی]"
+
+_MI_SPACE = re.compile(rf"(?<!\S)(ن?می)\s+(?={_PERS_LET})")
+_MI_JOIN = re.compile(rf"(?<!\S)(ن?می)(?={_PERS_LET})(?!\u200c)")
+_MI_AFTER_OPEN = re.compile(rf"(?<=[«\(\[])(ن?می)(?={_PERS_LET})(?!\u200c)")
 
 
 def _orthography_tidy(s: str) -> str:
-    return _MI.sub(r"\1‌", s)
+    s = _MI_SPACE.sub("\\1\u200c", s)  # \1 + ZWNJ
+    s = _MI_JOIN.sub("\\1\u200c", s)
+    s = _MI_AFTER_OPEN.sub("\\1\u200c", s)
+    return s
 
 
 def create_formal_pipeline(*, use_rules: bool = True, **kwargs) -> FormalPipeline:
-    """
-    Build an informal->formal pipeline.
-
-    Parameters
-    ----------
-    use_rules : bool
-        If True, apply a fast rule-based pass before the transformer (recommended).
-    **kwargs :
-        Forwarded to TransformerFormalStep (e.g., model_name, device, generate_kwargs).
-
-    Returns
-    -------
-    FormalPipeline
-    """
     steps: List[FormalStep] = []
     if use_rules:
         steps.append(RuleBasedFormalStep())

@@ -3,6 +3,8 @@
 from importlib import import_module
 from typing import Any
 
+__version__ = "0.1.5"
+
 
 def _lazy(module_path: str, obj: str, *args: Any, **kwargs: Any):
     mod = import_module(module_path)

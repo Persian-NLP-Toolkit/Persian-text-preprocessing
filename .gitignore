@@ -1,21 +1,62 @@
+# --- Python bytecode & cache ---
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.so
+*$py.class
 
+# --- Virtual environments ---
 .venv/
-env/
 venv/
+env/
+ENV/
 
-*.log
-*.coverage
-coverage.xml
+# --- Build / packaging artifacts ---
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+*.whl
+
+# --- Tests / coverage ---
+.pytest_cache/
+.coverage*
 htmlcov/
+.tox/
+.nox/
 
-.root/
-.cache/
-*.cache
+# --- Type checkers / linters ---
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
 
+# --- Logs & temp files ---
+*.log
+*.tmp
+*.bak
+
+# --- Editors / IDE ---
+.vscode/
+.idea/
+*.code-workspace
+.ropeproject/
+.history/
+
+# --- OS junk ---
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+.ipynb_checkpoints/
+
+.cache/
+.huggingface/
+hf_cache/
+transformers_cache/
+
+nltk_data/
+parsivar/resource/spell/
+
+docs/_build/
+site/

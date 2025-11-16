@@ -1,83 +1,13 @@
-# Persian Text Preprocessing Toolkit - ابزار پیش‌پردازش متن فارسی
+# preproc-pkg
 
-این مخزن شامل مجموعه‌ای از ابزارهای تخصصی برای **پیش‌پردازش متون فارسی** است. این ابزارها به شما کمک می‌کنند تا متون خام فارسی را برای پردازش‌های بعدی مانند **تحلیل احساسات، طبقه‌بندی متون، خوشه‌بندی** و غیره آماده‌سازی کنید.
+Persian preprocessing pipelines (normalize, spell, informal→formal, stopword, lemma, stem).
 
----
+## Python & OS
+- Python: **3.8 only** (`>=3.8,<3.9`)
+- See `constraints/py38-cpu.txt` for fully pinned environment (including `torch==2.2.2+cpu`).
 
-## ساختار فایل‌ها و پوشه‌ها
-
-```
-persian_text_pp/
-├── FarsiLanguageRecognition.py      # تشخیص زبان فارسی
-├── Normalize.py                     # نرمال‌سازی اولیه متن
-├── RemoveDiacritics.py              # حذف علائم اعراب
-├── RemovePunctuations.py            # حذف علامت‌های نگارشی
-├── RemoveRepeatingChar.py           # حذف کاراکترهای تکراری
-├── Informal2Formal.py               # تبدیل واژگان غیررسمی به رسمی
-├── Tokenize.py                      # توکنایزر فارسی
-├── RemoveStopWords.py               # حذف کلمات توقف
-├── Lemmatizer.py                    # ریشه‌یابی واژگان (لماتیزاسیون)
-└── PreprocessPipeline.py            # پایپ‌لاین جامع پیش‌پردازش
-
-get_stopwords/
-├── get_stopwords.py                 # بارگذاری لیست کلمات توقف
-└── persian_stopwords/              # فایل‌های متنی کلمات توقف
-    ├── chars.txt
-    ├── nonverbal.txt
-    ├── persian.txt
-    ├── short.txt
-    └── verbal.txt
-```
-
----
-
-## مراحل پیش‌پردازش در پایپ‌لاین
-
-فایل `PreprocessPipeline.py` شامل یک تابع جامع به‌نام `preprocess_pipeline(...)` است که تمام مراحل زیر را به ترتیب روی متن فارسی اعمال می‌کند:
-
-1. تشخیص زبان فارسی  
-2. نرمال‌سازی متن (تنظیم کاراکترها، حذف HTML، جایگزینی ایمیل/اعداد/لینک‌ها و ...)  
-3. حذف علائم اعراب  
-4. حذف علامت‌های نگارشی  
-5. حذف کاراکترهای تکراری  
-6. تبدیل واژگان غیررسمی به رسمی  
-7. توکنایز کردن متن  
-8. حذف کلمات توقف  
-9. ریشه‌یابی (Lemmatization)  
-
----
-
-## نصب پیش‌نیازها
-
+## Install (reproducible)
 ```bash
-pip install -r requirements.txt
-```
-
----
-
-## مثال استفاده
-
-```python
-from persian_text_pp.PreprocessPipeline import preprocess_pipeline
-
-text = "این یک متن آزمایشی است! شماره تماس: ۰۹۱۲-۳۴۵-۶۷۸۹"
-tokens = preprocess_pipeline(text)
-
-print(tokens)
-# خروجی: ['این', 'یک', 'متن', 'آزمایشی', 'است', 'شماره', 'تماس']
-```
-
-> با استفاده از پارامترهای ورودی در تابع، می‌توانید تنظیمات مرحله نرمال‌سازی را به دلخواه شخصی‌سازی کنید.
-
----
-
-## نکته
-
-در صورتی که بخواهید یکی از مراحل را حذف یا سفارشی‌سازی کنید (برای مثال: حذف نکردن اعداد یا ایمیل‌ها)، کافی است مقدار مناسب برای پارامترهای مربوطه در تابع `preprocess_pipeline` را تنظیم کنید.
-
----
-
-## مشارکت
-
-اگر ایده یا پیشنهادی برای بهبود این پروژه دارید، خوشحال می‌شویم که در قالب Pull Request با ما در میان بگذارید.
-
+python -m venv .venv && . .venv/bin/activate
+python -m pip install --upgrade pip
+pip install preproc-pkg[formalizer] -c constraints/py38-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu

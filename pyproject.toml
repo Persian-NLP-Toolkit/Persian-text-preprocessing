@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "preproc-pkg"
+version = "0.1.5"
+description = "Persian text preprocessing: normalization, spell, formalization, stopword, lemmatization, stemming"
+readme = "README.md"
+requires-python = ">=3.8,<3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "ITRC", email = "example@example.com" }]
+
+dependencies = [
+  "hazm==0.9.4",
+  "parsivar==0.2.3.1",
+  "nltk==3.9.1",
+]
+
+[project.optional-dependencies]
+formalizer = [
+  "transformers==4.41.2",
+  "torch==2.2.2+cpu",
+]
+
+[project.scripts]
+preproc-cli = "preproc_pkg.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["preproc_pkg"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "preproc_pkg/**",
+  "README.md",
+  "LICENSE",
+  "constraints/py38-cpu.txt",
+]

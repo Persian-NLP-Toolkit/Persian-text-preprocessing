@@ -10,11 +10,30 @@ from . import (
     create_stem_pipeline,
 )
 
+try:
+    from . import __version__ as _PKG_VERSION
+except Exception:
+    _PKG_VERSION = "0.0.0"
+
 
 def _read_text(args) -> str:
     if args.text is not None:
         return args.text
     return sys.stdin.read()
+
+
+def _require_transformers_or_exit():
+    try:
+        import transformers  # noqa: F401
+        import torch  # noqa: F401
+    except Exception:
+        msg = (
+            "  pip install preproc-pkg[formalizer] "
+            "-c constraints/py38-cpu.txt "
+            "--extra-index-url https://download.pytorch.org/whl/cpu"
+        )
+        print(msg, file=sys.stderr)
+        raise SystemExit(2)
 
 
 def cmd_normalize(args):
@@ -36,6 +55,7 @@ def cmd_normalize(args):
 def cmd_spell(args):
     kw = {"use_parsivar": not args.no_parsivar}
     if args.use_transformer:
+        _require_transformers_or_exit()
         kw["use_transformer"] = True
         kw["model_name"] = args.model_name
     pipe = create_spell_pipeline(**kw)
@@ -43,6 +63,7 @@ def cmd_spell(args):
 
 
 def cmd_formal(args):
+    _require_transformers_or_exit()
     pipe = create_formal_pipeline(model_name=args.model_name)
     print(pipe(_read_text(args)))
 
@@ -74,6 +95,15 @@ def main(argv: List[str] = None):
     p = argparse.ArgumentParser(
         prog="preproc-cli", description="Persian NLP Preprocessing CLI"
     )
+
+    # --version
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_PKG_VERSION}",
+        help="View the version of the package",
+    )
+
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("normalize", help="Run the normalizer pipeline")

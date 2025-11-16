@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+include constraints/py38-cpu.txt
+recursive-include preproc_pkg *.py

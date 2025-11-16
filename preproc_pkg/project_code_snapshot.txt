@@ -1,0 +1,1699 @@
+﻿==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\__init__.py ====================
+"""Package-level convenience factories."""
+
+from importlib import import_module
+from typing import Any
+
+__version__ = "0.1.0"
+
+def _lazy(module_path: str, obj: str, *args: Any, **kwargs: Any):
+    mod = import_module(module_path)
+    return getattr(mod, obj)(*args, **kwargs)
+
+
+def create_spell_pipeline(**kwargs):
+    """Factory wrapper for spell pipeline."""
+    return _lazy("preproc_pkg.spell_pkg.pipeline", "create_spell_pipeline", **kwargs)
+
+
+def create_normalizer_pipeline(**kwargs):
+    """Factory wrapper for normalizer pipeline."""
+    return _lazy(
+        "preproc_pkg.normalizer_pkg.pipeline", "create_normalizer_pipeline", **kwargs
+    )
+
+
+def create_formal_pipeline(**kwargs):
+    """Factory wrapper for informal->formal pipeline."""
+    return _lazy("preproc_pkg.formal_pkg.pipeline", "create_formal_pipeline", **kwargs)
+
+
+def create_stopword_pipeline(**kwargs):
+    """Factory wrapper for stopword pipeline."""
+    return _lazy(
+        "preproc_pkg.stopword_pkg.pipeline", "create_stopword_pipeline", **kwargs
+    )
+
+
+def create_lemma_pipeline(**kwargs):
+    """Factory wrapper for lemmatization pipeline."""
+    return _lazy("preproc_pkg.lemma_pkg.pipeline", "create_lemma_pipeline", **kwargs)
+
+
+def create_stem_pipeline(**kwargs):
+    """Factory wrapper for stemming pipeline."""
+    return _lazy("preproc_pkg.stem_pkg.pipeline", "create_stem_pipeline", **kwargs)
+
+
+__all__ = [
+    "create_spell_pipeline",
+    "create_formal_pipeline",
+    "create_stopword_pipeline",
+    "create_lemma_pipeline",
+    "create_stem_pipeline",
+    "create_normalizer_pipeline",
+]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\_assets.py ====================
+from __future__ import annotations
+import os, io, zipfile, pathlib, urllib.request
+
+_PARSIVAR_SPELL_URL = "https://www.dropbox.com/s/tlyvnzv1ha9y1kl/spell.zip?dl=1"
+
+
+def ensure_parsivar_spell_data(
+    url: str = _PARSIVAR_SPELL_URL, timeout: int = 60
+) -> str:
+    """Ensure Parsivar spell resources exist; download once if missing. Returns dst dir."""
+    import parsivar
+
+    dst = os.path.join(os.path.dirname(parsivar.__file__), "resource", "spell")
+    if os.path.isdir(dst) and any(os.scandir(dst)):
+        return dst
+    pathlib.Path(dst).mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        data = r.read()
+    zipfile.ZipFile(io.BytesIO(data)).extractall(dst)
+    return dst
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\_hf_cache.py ====================
+"""Tiny, process-local caches for HuggingFace models/pipelines."""
+
+from functools import lru_cache
+from typing import Tuple, Any
+from transformers import AutoTokenizer, T5ForConditionalGeneration, pipeline
+
+
+@lru_cache(maxsize=8)
+def load_t5(
+    model_name: str, device: str = "cpu"
+) -> Tuple[Any, T5ForConditionalGeneration]:
+    """Load a T5 tokenizer+model once per process for a specific device; returns (tokenizer, model)."""
+    tok = AutoTokenizer.from_pretrained(model_name)
+    model = T5ForConditionalGeneration.from_pretrained(model_name)
+    if device:
+        model.to(device)
+    model.eval()
+    return tok, model
+
+
+@lru_cache(maxsize=8)
+def get_text2text_pipeline(model_name: str, device: int = -1):
+    """Cache a text2text-generation pipeline (Seq2Seq only) by (model, device)."""
+    return pipeline("text2text-generation", model=model_name, device=device)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\cli.py ====================
+import argparse
+import sys
+from typing import List
+from . import (
+    create_normalizer_pipeline,
+    create_spell_pipeline,
+    create_formal_pipeline,
+    create_stopword_pipeline,
+    create_lemma_pipeline,
+    create_stem_pipeline,
+)
+
+try:
+    from . import __version__ as _PKG_VERSION
+except Exception:
+    _PKG_VERSION = "0.0.0"
+
+
+def _read_text(args) -> str:
+    if args.text is not None:
+        return args.text
+    return sys.stdin.read()
+
+
+def _require_transformers_or_exit():
+    try:
+        import transformers  # noqa: F401
+        import torch  # noqa: F401
+    except Exception:
+        msg = (
+            "  pip install preproc-pkg[formalizer] "
+            "-c constraints/py38-cpu.txt "
+            "--extra-index-url https://download.pytorch.org/whl/cpu"
+        )
+        print(msg, file=sys.stderr)
+        raise SystemExit(2)
+
+
+def cmd_normalize(args):
+    pipe = create_normalizer_pipeline(
+        enable_metrics=args.metrics,
+        enable_parsivar=not args.no_parsivar,
+        enable_hazm=not args.no_hazm,
+    )
+    out = pipe(_read_text(args), return_report=args.metrics)
+    if args.metrics:
+        text, rep = out
+        print(text)
+        print("\n--- METRICS ---")
+        print(rep)
+    else:
+        print(out)
+
+
+def cmd_spell(args):
+    kw = {"use_parsivar": not args.no_parsivar}
+    if args.use_transformer:
+        _require_transformers_or_exit()
+        kw["use_transformer"] = True
+        kw["model_name"] = args.model_name
+    pipe = create_spell_pipeline(**kw)
+    print(pipe(_read_text(args)))
+
+
+def cmd_formal(args):
+    _require_transformers_or_exit()
+    pipe = create_formal_pipeline(model_name=args.model_name)
+    print(pipe(_read_text(args)))
+
+
+def cmd_stopword(args):
+    pipe = create_stopword_pipeline()
+    print(pipe(_read_text(args)))
+
+
+def cmd_lemma(args):
+    pipe = create_lemma_pipeline(
+        use_hazm=not args.no_hazm,
+        use_parsivar=not args.no_parsivar,
+        prefer_past=args.prefer_past,
+    )
+    print(pipe(_read_text(args)))
+
+
+def cmd_stem(args):
+    pipe = create_stem_pipeline(
+        use_hazm=not args.no_hazm,
+        use_parsivar=not args.no_parsivar,
+        prefer_past=args.prefer_past,
+    )
+    print(pipe(_read_text(args)))
+
+
+def main(argv: List[str] = None):
+    p = argparse.ArgumentParser(
+        prog="preproc-cli", description="Persian NLP Preprocessing CLI"
+    )
+
+    # --version
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_PKG_VERSION}",
+        help="Ù†Ù…Ø§ÛŒØ´ Ù†Ø³Ø®Ù‡Ù” Ø§Ø¨Ø²Ø§Ø±",
+    )
+
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("normalize", help="Run the normalizer pipeline")
+    sp.add_argument("--text", type=str, help="Input text (default: stdin)")
+    sp.add_argument("--metrics", action="store_true", help="Print per-step metrics")
+    sp.add_argument("--no-parsivar", action="store_true", help="Disable Parsivar stage")
+    sp.add_argument("--no-hazm", action="store_true", help="Disable Hazm stage")
+    sp.set_defaults(func=cmd_normalize)
+
+    sp = sub.add_parser("spell", help="Run spell-correction pipeline")
+    sp.add_argument("--text", type=str, help="Input text (default: stdin)")
+    sp.add_argument("--no-parsivar", action="store_true", help="Disable Parsivar step")
+    sp.add_argument(
+        "--use-transformer", action="store_true", help="Enable transformer step"
+    )
+    sp.add_argument(
+        "--model-name",
+        type=str,
+        default="",
+        help="Seq2Seq model name for transformer step",
+    )
+    sp.set_defaults(func=cmd_spell)
+
+    sp = sub.add_parser("formal", help="Convert informal -> formal")
+    sp.add_argument("--text", type=str, help="Input text (default: stdin)")
+    sp.add_argument(
+        "--model-name", type=str, default="PardisSzah/PersianTextFormalizer"
+    )
+    sp.set_defaults(func=cmd_formal)
+
+    sp = sub.add_parser("stopword", help="Remove stopwords")
+    sp.add_argument("--text", type=str, help="Input text (default: stdin)")
+    sp.set_defaults(func=cmd_stopword)
+
+    sp = sub.add_parser("lemma", help="Lemmatize")
+    sp.add_argument("--text", type=str, help="Input text (default: stdin)")
+    sp.add_argument("--no-hazm", action="store_true")
+    sp.add_argument("--no-parsivar", action="store_true")
+    sp.add_argument("--prefer-past", action="store_true")
+    sp.set_defaults(func=cmd_lemma)
+
+    sp = sub.add_parser("stem", help="Stem")
+    sp.add_argument("--text", type=str, help="Input text (default: stdin)")
+    sp.add_argument("--no-hazm", action="store_true")
+    sp.add_argument("--no-parsivar", action="store_true")
+    sp.add_argument("--prefer-past", action="store_true")
+    sp.set_defaults(func=cmd_stem)
+
+    args = p.parse_args(argv)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\formal_pkg\__init__.py ====================
+from .pipeline import create_formal_pipeline
+
+__all__ = ["create_formal_pipeline"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\formal_pkg\pipeline.py ====================
+from typing import List
+from .steps import FormalStep, RuleBasedFormalStep, TransformerFormalStep
+import re
+
+
+class FormalPipeline:
+    def __init__(self, steps: List[FormalStep]):
+        self.steps = steps
+
+    def __call__(self, text: str) -> str:
+        for s in self.steps:
+            text = s.apply(text)
+        return _orthography_tidy(text)
+
+    def __repr__(self):
+        return (
+            "FormalPipeline("
+            + " -> ".join(s.__class__.__name__ for s in self.steps)
+            + ")"
+        )
+
+
+_MI = re.compile(r"(?<!\S)(Ù†?Ù…ÛŒ)\s+(?=[Ø§Ø¢Ø¡Ø¦Ø£Ø¥Ø¢Ø¨ØªØ«Ø¬Ú†Ø­Ø®Ø¯Ø°Ø±Ø²Ø³Ø´ØµØ¶Ø·Ø¸Ø¹ØºÙÙ‚Ú©Ú¯Ù„Ù…Ù†ÙˆÙ‡ÛŒ])")
+
+
+def _orthography_tidy(s: str) -> str:
+    return _MI.sub(r"\1â€Œ", s)
+
+
+def create_formal_pipeline(*, use_rules: bool = True, **kwargs) -> FormalPipeline:
+    """
+    Build an informal->formal pipeline.
+
+    Parameters
+    ----------
+    use_rules : bool
+        If True, apply a fast rule-based pass before the transformer (recommended).
+    **kwargs :
+        Forwarded to TransformerFormalStep (e.g., model_name, device, generate_kwargs).
+
+    Returns
+    -------
+    FormalPipeline
+    """
+    steps: List[FormalStep] = []
+    if use_rules:
+        steps.append(RuleBasedFormalStep())
+    steps.append(TransformerFormalStep(**kwargs))
+    return FormalPipeline(steps)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\formal_pkg\steps\__init__.py ====================
+from .rule_based import RuleBasedFormalStep
+from .transformer import TransformerFormalStep
+from .base import FormalStep
+
+__all__ = ["FormalStep", "RuleBasedFormalStep", "TransformerFormalStep"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\formal_pkg\steps\base.py ====================
+from abc import ABC, abstractmethod
+
+
+class FormalStep(ABC):
+    @abstractmethod
+    def apply(self, text: str) -> str: ...
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\formal_pkg\steps\rule_based.py ====================
+from __future__ import annotations
+
+import re
+from typing import List, Tuple
+from .base import FormalStep
+
+COMMON = {
+    r"\bÙ…ÛŒØ®ÙˆØ§Ù…\b": "Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡Ù…",
+    r"\bÙ…ÛŒâ€ŒØ®ÙˆØ§ÛŒ\b": "Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡ÛŒ",
+    r"\bÙ…ÛŒâ€ŒØ®ÙˆØ§Ø¯\b": "Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡Ø¯",
+    r"\bÙ…ÛŒâ€ŒØ®ÙˆØ§ÛŒÙ…\b": "Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡ÛŒÙ…",
+    r"\bÙ…ÛŒâ€ŒØ®ÙˆØ§Ù†\b": "Ù…ÛŒâ€ŒØ®ÙˆØ§Ù†Ù†Ø¯",
+    r"\bØ¯ÙˆØ³ØªØ§Ù…\b": "Ø¯ÙˆØ³ØªØ§Ù†Ù…",
+    r"\bØ®ÙˆØ´â€ŒØªÙˆÙ†\b": "Ø®ÙˆØ´â€ŒØªØ§Ù†",
+}
+
+
+class RuleBasedFormalStep(FormalStep):
+    """Fast regex substitution for high-frequency colloquialisms."""
+
+    def __init__(self, extra: dict[str, str] | None = None):
+        rules = COMMON.copy()
+        if extra:
+            rules.update(extra)
+        self.patterns: List[Tuple[re.Pattern[str], str]] = [
+            (re.compile(pat), repl) for pat, repl in rules.items()
+        ]
+
+    def apply(self, text: str) -> str:
+        for pat, repl in self.patterns:
+            text = pat.sub(repl, text)
+        return text
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\formal_pkg\steps\transformer.py ====================
+from typing import Optional, Dict
+import torch
+from .base import FormalStep
+from ..._hf_cache import load_t5
+
+
+class TransformerFormalStep(FormalStep):
+    """
+    Seq2Seq T5 model fine-tuned for Persian formalization.
+
+    Parameters
+    ----------
+    model_name : str
+        HuggingFace model id (must be a Seq2Seq model).
+    device : Optional[str]
+        e.g. 'cuda:0' or 'cpu'. If None, keep model on default device.
+    generate_kwargs : Optional[Dict]
+        Extra kwargs passed to `model.generate` (e.g., num_beams, max_new_tokens).
+
+    Notes
+    -----
+    Tokenizer/model are cached process-locally (see _hf_cache.load_t5).
+    """
+
+    def __init__(
+        self,
+        model_name: str = "PardisSzah/PersianTextFormalizer",
+        *,
+        device: Optional[str] = None,
+        generate_kwargs: Optional[Dict] = None,
+    ):
+        # Load from shared cache per (model, device)
+        dev = device or "cpu"
+        self.tok, self.model = load_t5(model_name, dev)
+        self.device = dev
+        self._gen = {"num_beams": 4, "max_new_tokens": 128}
+        if generate_kwargs:
+            self._gen.update(generate_kwargs)
+
+    def apply(self, text: str) -> str:
+        enc = self.tok(
+            "informal: " + text, return_tensors="pt", truncation=True, max_length=256
+        )
+        # Move inputs only if not on CPU
+        if self.device and self.device != "cpu":
+            enc = {k: v.to(self.device) for k, v in enc.items()}
+        with torch.no_grad():
+            out_ids = self.model.generate(**enc, **self._gen)
+        return self.tok.decode(out_ids[0], skip_special_tokens=True)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\__init__.py ====================
+from .pipeline import create_lemma_pipeline, LemmaPipeline
+from .steps import LemmaStep, HazmLemmaStep, ParsivarLemmaStep, CombinedLemmaStep
+
+__all__ = [
+    "create_lemma_pipeline",
+    "LemmaPipeline",
+    "LemmaStep",
+    "HazmLemmaStep",
+    "ParsivarLemmaStep",
+    "CombinedLemmaStep",
+]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\pipeline.py ====================
+from typing import List
+from .steps import LemmaStep, HazmLemmaStep, ParsivarLemmaStep, CombinedLemmaStep
+
+
+class LemmaPipeline:
+    def __init__(self, steps: List[LemmaStep]):
+        self.steps = steps
+
+    def __call__(self, text: str) -> str:
+        for s in self.steps:
+            text = s.apply(text)
+        return text
+
+    def __repr__(self):
+        return (
+            "LemmaPipeline("
+            + " -> ".join(s.__class__.__name__ for s in self.steps)
+            + ")"
+        )
+
+
+def create_lemma_pipeline(
+    *, use_hazm: bool = True, use_parsivar: bool = True, prefer_past: bool = False
+) -> LemmaPipeline:
+    """
+    Build a lemmatization pipeline.
+
+    Parameters
+    ----------
+    use_hazm : bool
+        Enable Hazm lemmatizer.
+    use_parsivar : bool
+        Enable Parsivar stems as a proxy for lemmas.
+    prefer_past : bool
+        If True, choose past form for verbs; otherwise present.
+
+    Returns
+    -------
+    LemmaPipeline
+    """
+    steps: List[LemmaStep] = []
+    if use_hazm and use_parsivar:
+        steps.append(CombinedLemmaStep(prefer_past=prefer_past))
+    elif use_hazm:
+        steps.append(HazmLemmaStep(prefer_past=prefer_past))
+    elif use_parsivar:
+        steps.append(ParsivarLemmaStep(prefer_past=prefer_past))
+    else:
+        raise ValueError("At least one of use_hazm or use_parsivar must be True.")
+    return LemmaPipeline(steps)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\steps\__init__.py ====================
+from .base import LemmaStep
+from .hazm_step import HazmLemmaStep
+from .parsivar_step import ParsivarLemmaStep
+from .combined_step import CombinedLemmaStep
+
+__all__ = ["LemmaStep", "HazmLemmaStep", "ParsivarLemmaStep", "CombinedLemmaStep"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\steps\base.py ====================
+from abc import ABC, abstractmethod
+
+
+class LemmaStep(ABC):
+    @abstractmethod
+    def apply(self, text: str) -> str:
+        """Convert text to its lemmatized form (base forms of words)."""
+        pass
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\steps\combined_step.py ====================
+from __future__ import annotations
+from typing import List
+from hazm import Lemmatizer, word_tokenize
+from parsivar import FindStems
+from .base import LemmaStep
+from ...utils.constants import SPLIT_RE, PUNCT
+from ...utils.textutils import detokenize
+
+
+class CombinedLemmaStep(LemmaStep):
+    """Hazm first; if unchanged, fallback Parsivar. Pick present/past for verbs."""
+
+    def __init__(self, *, prefer_past: bool = False):
+        self._hz = Lemmatizer()
+        self._pv = FindStems()
+        self._past = prefer_past
+
+    def _pick(self, s: str) -> str:
+        parts = SPLIT_RE.split(s)
+        if len(parts) > 1:
+            return parts[0] if self._past else parts[1]
+        return s
+
+    def apply(self, text: str) -> str:
+        toks: List[str] = word_tokenize(text)
+        out_tokens: List[str] = []
+        for t in toks:
+            hz = self._hz.lemmatize(t)
+            chosen = self._pick(hz)
+            if chosen != t or SPLIT_RE.search(hz):
+                out_tokens.append(chosen)
+            else:
+                pv = self._pv.convert_to_stem(t)
+                out_tokens.append(self._pick(pv))
+        return detokenize(out_tokens, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\steps\hazm_step.py ====================
+from __future__ import annotations
+from typing import List
+from hazm import Lemmatizer, word_tokenize
+from .base import LemmaStep
+from ...utils.constants import SPLIT_RE, PUNCT
+from ...utils.textutils import detokenize
+
+
+class HazmLemmaStep(LemmaStep):
+    """Lemmatize using Hazm; for verbs pick present (default) or past."""
+
+    def __init__(self, *, prefer_past: bool = False):
+        self.lemmatizer = Lemmatizer()
+        self._past = prefer_past
+
+    def _pick(self, s: str) -> str:
+        parts = SPLIT_RE.split(s)
+        if len(parts) > 1:
+            return parts[0] if self._past else parts[1]
+        return s
+
+    def apply(self, text: str) -> str:
+        toks: List[str] = word_tokenize(text)
+        out_tokens: List[str] = [self._pick(self.lemmatizer.lemmatize(t)) for t in toks]
+        return detokenize(out_tokens, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\lemma_pkg\steps\parsivar_step.py ====================
+from __future__ import annotations
+from typing import List
+from parsivar import FindStems
+from hazm import word_tokenize
+from .base import LemmaStep
+from ...utils.constants import SPLIT_RE, PUNCT
+from ...utils.textutils import detokenize
+
+
+class ParsivarLemmaStep(LemmaStep):
+    """Approximate lemma via Parsivar; choose present/past stems for verbs."""
+
+    def __init__(self, *, prefer_past: bool = False):
+        self._st = FindStems()
+        self._past = prefer_past
+
+    def _pick(self, s: str) -> str:
+        parts = SPLIT_RE.split(s)
+        if len(parts) > 1:
+            return parts[0] if self._past else parts[1]
+        return s
+
+    def apply(self, text: str) -> str:
+        toks: List[str] = word_tokenize(text)
+        out_tokens: List[str] = [self._pick(self._st.convert_to_stem(t)) for t in toks]
+        return detokenize(out_tokens, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\__init__.py ====================
+from .pipeline import normalize  # high-level pipeline
+from .hazm_normalizer import HazmNormalizer  # low-level access
+from .parsivar_normalizer import ParsivarNormalizer
+from .cleaners import html, url, nonbmp, collapse_spaces
+from .pinglish import is_pinglish, convert as pinglish_convert
+
+__all__ = [
+    "normalize",
+    "HazmNormalizer",
+    "ParsivarNormalizer",
+    "html",
+    "url",
+    "nonbmp",
+    "collapse_spaces",
+    "is_pinglish",
+    "pinglish_convert",
+]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\__init__.py ====================
+from importlib import import_module
+
+html = import_module(".html", __name__)
+url = import_module(".url", __name__)
+nonbmp = import_module(".nonbmp", __name__)
+collapse_spaces = import_module(".collapse_spaces", __name__)
+
+email = import_module(".email", __name__)
+mention = import_module(".mention", __name__)
+hashtag = import_module(".hashtag", __name__)
+phone = import_module(".phone", __name__)
+quotes_dashes = import_module(".quotes_dashes", __name__)
+
+__all__ = [
+    "html",
+    "url",
+    "nonbmp",
+    "collapse_spaces",
+    "email",
+    "mention",
+    "hashtag",
+    "phone",
+    "quotes_dashes",
+]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\collapse_spaces.py ====================
+import re
+
+# Export pattern for metrics (counts multi-whitespace runs)
+PATTERN = re.compile(r"\s{2,}")
+LABEL = "collapse_spaces"
+
+# For the keep_newlines mode
+_NO_NL_MULTI_WS = re.compile(r"[ \t\f\v]{2,}")
+_MULTI_NEWLINES = re.compile(r"\n{3,}")
+
+
+def process(text: str, keep_newlines: bool = False) -> str:
+    """
+    Collapse whitespace runs to a single space.
+    If keep_newlines=True: preserve line breaks, collapse only horizontal spaces,
+    and reduce 3+ consecutive newlines to exactly two (paragraph boundary).
+    """
+    if keep_newlines:
+        # Collapse horizontal whitespace (except \r and \n)
+        text = _NO_NL_MULTI_WS.sub(" ", text)
+        # Soften huge blank blocks (optional)
+        text = _MULTI_NEWLINES.sub("\n\n", text)
+        return text.strip()
+    # Default: collapse all whitespace runs (space, tab, newlines) to a single space
+    return PATTERN.sub(" ", text).strip()
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\email.py ====================
+import re
+
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+LABEL = "email"
+PATTERN = EMAIL_RE  # exported for metrics
+
+
+def process(text: str) -> str:
+    """Mask email addresses -> [EMAIL]."""
+    return EMAIL_RE.sub("[EMAIL]", text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\hashtag.py ====================
+import re
+
+# Avoid HTML entities like '&#123;' via negative lookbehind for '&'.
+HASHTAG_RE = re.compile(r"(?<!\w)(?<!&)#([A-Za-z0-9_]+|[\u0600-\u06FF0-9_]+)")
+LABEL = "hashtag"
+PATTERN = HASHTAG_RE  # exported for metrics
+
+
+def process(text: str) -> str:
+    """Mask hashtags -> [HASHTAG]."""
+    return HASHTAG_RE.sub("[HASHTAG]", text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\html.py ====================
+import re
+
+HTML_RE = re.compile(r"<[^>]+>")
+LABEL = "html"
+PATTERN = HTML_RE  # exported for metrics (matches removed)
+
+
+def process(text: str) -> str:
+    """Strip HTML/XML tags."""
+    return HTML_RE.sub("", text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\mention.py ====================
+import re
+
+# Avoid matching mentions inside emails by requiring no word-char before '@'.
+MENTION_RE = re.compile(r"(?<!\w)(?<!\w@)@[A-Za-z0-9_]{2,}")
+LABEL = "mention"
+PATTERN = MENTION_RE  # exported for metrics
+
+
+def process(text: str) -> str:
+    """Mask @mentions -> [MENTION]."""
+    return MENTION_RE.sub("[MENTION]", text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\nonbmp.py ====================
+import re
+
+NON_BMP_RE = re.compile(r"[^\u0000-\uFFFF]")
+LABEL = "nonbmp"
+PATTERN = NON_BMP_RE  # exported for metrics (matches removed)
+
+
+def process(text: str) -> str:
+    """Remove non-BMP code-points (emoji, fancy symbols)."""
+    return NON_BMP_RE.sub(" ", text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\phone.py ====================
+import re
+
+# Iran mobile (with optional +98/0098/0) with digit boundaries.
+IR_MOBILE = re.compile(r"(?<!\d)(?:\+98|0098|0)?9\d{9}(?!\d)")
+
+# Generic international: at least ~8 digits; avoid word-joins.
+INTL_GENERIC = re.compile(r"(?<!\w)(?:\+|00)?\d[\d\s\-]{6,}\d(?!\w)")
+
+LABEL = "phone"
+PATTERNS = [IR_MOBILE, INTL_GENERIC]  # exported for metrics
+
+
+def process(text: str) -> str:
+    """Mask phone numbers -> [PHONE]. First Iran mobiles, then generic intl."""
+    out = IR_MOBILE.sub("[PHONE]", text)
+    out = INTL_GENERIC.sub("[PHONE]", out)
+    return out
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\quotes_dashes.py ====================
+import re
+
+# Map typographic quotes to ASCII quotes
+QUOTE_MAP = str.maketrans(
+    {
+        "Â«": '"',
+        "Â»": '"',
+        "â€œ": '"',
+        "â€": '"',
+        "â€ž": '"',
+        "â€Ÿ": '"',
+        "Ë®": '"',
+        "â€˜": "'",
+        "â€™": "'",
+        "â€š": "'",
+        "â€¹": "'",
+        "â€º": "'",
+        "â€²": "'",
+    }
+)
+
+# Only typographic dash variants (EXCLUDES ASCII hyphen-minus '-')
+_DASH_CHARS = "â€“â€”â€’âˆ’ï¹£â€"  # intentionally no "-" to avoid breaking URLs/emails/compounds
+_DASH_RE = re.compile(f"[{re.escape(_DASH_CHARS)}]")
+
+# Export patterns for metrics collection
+LABEL = "quotes_dashes"
+PATTERNS = [
+    re.compile(r"[Â«Â»â€œâ€â€žâ€ŸË®â€˜â€™â€šâ€¹â€ºâ€²]"),  # quotes that will be normalized
+    re.compile(f"[{re.escape(_DASH_CHARS)}]"),  # non-ASCII dashes normalized to em dash
+]
+
+
+def process(text: str) -> str:
+    """Normalize quotes to ASCII and dash variants to em dash, without touching ASCII '-'."""
+    # Normalize quotes
+    text = text.translate(QUOTE_MAP)
+    # Normalize typographic dashes to em dash
+    text = _DASH_RE.sub("â€”", text)
+    # Collapse multiple em dashes to a single one
+    text = re.sub(r"â€”{2,}", "â€”", text)
+    return text
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\cleaners\url.py ====================
+import re
+
+# Loose-but-practical URL pattern; avoids trailing punctuation.
+URL_RE = re.compile(r"""(?xi)
+    \b(
+        (?:https?://|ftp://|www\.)
+        [^\s<>'"{}|\\^`]+
+    )
+""")
+
+LABEL = "url"
+PATTERN = URL_RE  # exported for metrics
+
+
+def process(text: str) -> str:
+    """Mask URLs -> [URL]."""
+    return URL_RE.sub("[URL]", text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\hazm_normalizer.py ====================
+import inspect
+import warnings
+from hazm import Normalizer as _HZ
+
+_VALID_KW = set(inspect.signature(_HZ).parameters)
+
+
+class HazmNormalizer:
+    """
+    Wraps hazm.Normalizer with version-safe kwargs handling.
+    - strict=False: unknown kwargs dropped + warning (can be turned off).
+    - strict=True : If the key is unknown, throw an error.
+    """
+
+    def __init__(
+        self, *, strict: bool = False, warn_on_ignored: bool = True, **hz_kwargs
+    ):
+        unknown = {k: v for k, v in hz_kwargs.items() if k not in _VALID_KW}
+        if unknown:
+            msg = f"HazmNormalizer: ignored unknown kwargs: {sorted(unknown.keys())}"
+            if strict:
+                raise TypeError(msg)
+            if warn_on_ignored:
+                warnings.warn(msg, RuntimeWarning)
+        safe_kwargs = {k: v for k, v in hz_kwargs.items() if k in _VALID_KW}
+        self._norm = _HZ(**safe_kwargs)
+
+    def __call__(self, text: str) -> str:
+        return self._norm.normalize(text)
+
+
+# from hazm import Normalizer as _HZ
+
+
+# class HazmNormalizer:
+#     """Expose every Hazm switch via kwargs."""
+
+#     def __init__(self, **hz_kwargs):
+#         self._norm = _HZ(**hz_kwargs)
+
+#     def __call__(self, text: str) -> str:
+#         return self._norm.normalize(text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\parsivar_normalizer.py ====================
+from parsivar import Normalizer as _PV
+import inspect
+
+# build a set of valid keyword names from the current Parsivar signature
+_VALID_KW = set(inspect.signature(_PV).parameters)
+
+
+class ParsivarNormalizer:
+    """Wrapper that silently drops unknown kwargs (version-proof)."""
+
+    def __init__(self, **pv_kwargs):
+        safe_kwargs = {k: v for k, v in pv_kwargs.items() if k in _VALID_KW}
+        self._norm = _PV(**safe_kwargs)
+
+    def __call__(self, text: str) -> str:
+        return self._norm.normalize(text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\pinglish.py ====================
+# Detect Latin-only Persian sentences and convert via Parsivar.
+import re
+from parsivar import Normalizer as _PV
+
+_par_ping = _PV(pinglish_conversion_needed=True)
+_LATIN = re.compile(r"[A-Za-z]")
+_PERSIAN = re.compile(r"[\u0600-\u06FF]")
+
+
+def is_pinglish(text: str) -> bool:
+    """True iff text contains Latin letters and no Persian letters."""
+    return bool(_LATIN.search(text)) and not bool(_PERSIAN.search(text))
+
+
+def convert(text: str) -> str:
+    """Convert Pinglish to Persian if needed, else return unchanged."""
+    return _par_ping.normalize(text) if is_pinglish(text) else text
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\normalizer_pkg\pipeline.py ====================
+"""Run: cleaners -> pinglish -> Parsivar? -> Hazm? -> final cleaners."""
+
+import re
+from typing import Dict, Any, List, Callable, Optional, Tuple, Union
+from time import perf_counter
+from .cleaners import (
+    html,
+    url,
+    nonbmp,
+    collapse_spaces,
+    email as email_c,
+    mention as mention_c,
+    hashtag as hashtag_c,
+    phone as phone_c,
+    quotes_dashes as qd_c,
+)
+from .pinglish import convert as pinglish_convert
+from .hazm_normalizer import HazmNormalizer
+
+# (imports continue)
+from .parsivar_normalizer import ParsivarNormalizer
+
+DEFAULT_HAZM_CFG: Dict[str, Any] = dict(
+    correct_spacing=True,
+    remove_diacritics=True,
+    remove_specials_chars=True,
+    decrease_repeated_chars=True,
+    persian_style=True,
+    persian_numbers=True,
+    unicodes_replacement=True,
+    seperate_mi=True,
+)
+
+DEFAULT_PV_CFG: Dict[str, Any] = dict(
+    statistical_space_correction=True,
+    pinglish_conversion_needed=False,  # dynamic
+    normalize_numbers=True,
+    token_punctuation_augmentation=True,
+)
+
+StepFn = Callable[[str], str]
+
+
+class _Step:
+    """Internal step wrapper to carry label and optional regex pattern(s) for metrics."""
+
+    def __init__(self, label: str, fn: StepFn, pattern=None):
+        self.label = label
+        self.fn = fn
+        self.pattern = pattern  # can be a compiled regex or a list of them
+
+
+class NormalizerPipeline:
+    """
+    Configurable Persian text normalizer.
+
+    Order:
+      1) light unicode cleanup (NFC, control chars, NBSP/ZWNJ fix)
+      2) pre-cleaners (html, quotes/dashes, url/email/mention/hashtag/phone, nonbmp)
+      3) pinglish (optional)
+      4) Parsivar normalize
+      5) Hazm normalize
+      6) post-cleaners (nonbmp, collapse_spaces)
+
+    Parameters
+    ----------
+    enable_* : bool
+        Toggles for individual cleaners.
+    parsivar_cfg : dict, optional
+        Forwarded to Parsivar normalizer (unknown keys ignored).
+    hazm_cfg : dict, optional
+        Forwarded to Hazm normalizer (unknown keys dropped/warned).
+    enable_metrics : bool
+        If True, collect per-step timings and regex match counts.
+    collapse_keep_newlines : bool
+        If True, preserve paragraph breaks (two newlines).
+    """
+
+    def __init__(
+        self,
+        *,
+        enable_quotes_dashes: bool = True,
+        enable_url: bool = True,
+        enable_email: bool = True,
+        enable_mention: bool = True,
+        enable_hashtag: bool = True,
+        enable_phone: bool = True,
+        enable_nonbmp: bool = True,
+        enable_pinglish: bool = True,
+        # NEW: allow toggling Parsivar/Hazm engines
+        enable_parsivar: bool = True,
+        enable_hazm: bool = True,
+        parsivar_cfg: Optional[Dict[str, Any]] = None,
+        hazm_cfg: Optional[Dict[str, Any]] = None,
+        enable_metrics: bool = False,
+        collapse_keep_newlines: bool = False,
+    ):
+        # 1) Pre-cleaners with optional metrics patterns
+        self._pre: List[_Step] = [
+            _Step("html", html.process, getattr(html, "PATTERN", None))
+        ]
+        if enable_quotes_dashes:
+            self._pre.append(
+                _Step(
+                    "quotes_dashes",
+                    qd_c.process,
+                    getattr(qd_c, "PATTERNS", None),
+                )
+            )
+        if enable_url:
+            self._pre.append(_Step("url", url.process, getattr(url, "PATTERN", None)))
+        if enable_email:
+            self._pre.append(
+                _Step("email", email_c.process, getattr(email_c, "PATTERN", None))
+            )
+        if enable_mention:
+            self._pre.append(
+                _Step("mention", mention_c.process, getattr(mention_c, "PATTERN", None))
+            )
+        if enable_hashtag:
+            self._pre.append(
+                _Step("hashtag", hashtag_c.process, getattr(hashtag_c, "PATTERN", None))
+            )
+        if enable_phone:
+            pattern = getattr(phone_c, "PATTERNS", getattr(phone_c, "PATTERN", None))
+            self._pre.append(_Step("phone", phone_c.process, pattern))
+        if enable_nonbmp:
+            self._pre.append(
+                _Step("nonbmp", nonbmp.process, getattr(nonbmp, "PATTERN", None))
+            )
+
+        # 2) Engines (conditionally enabled)
+        self._enable_parsivar = enable_parsivar
+        self._enable_hazm = enable_hazm
+        self._pv = None
+        self._hz = None
+        if enable_parsivar:
+            self._pv = ParsivarNormalizer(
+                **({**DEFAULT_PV_CFG, **(parsivar_cfg or {})})
+            )
+        if enable_hazm:
+            self._hz = HazmNormalizer(**({**DEFAULT_HAZM_CFG, **(hazm_cfg or {})}))
+        self._enable_pinglish = enable_pinglish
+
+        # 3) Post
+        self._collapse_keep_newlines = collapse_keep_newlines
+        self._post: List[_Step] = [
+            _Step("nonbmp_post", nonbmp.process, getattr(nonbmp, "PATTERN", None)),
+            _Step("tidy_placeholders_punct", _tidy_text, None),
+            _Step(
+                "collapse_spaces",
+                lambda s: collapse_spaces.process(
+                    s, keep_newlines=self._collapse_keep_newlines
+                ),
+                getattr(collapse_spaces, "PATTERN", None),
+            ),
+        ]
+        self._enable_metrics = enable_metrics
+        self.last_report: Optional[Dict[str, Any]] = None
+
+    def __call__(
+        self, text: str, *, return_report: bool = False
+    ) -> Union[str, Tuple[str, Dict[str, Any]]]:
+        if not text:
+            self.last_report = {"empty_input": True}
+            return ("", self.last_report) if return_report else ""
+
+        report: Dict[str, Any] = {"steps": [], "counts": {}, "timings_ms": {}}
+        t0 = perf_counter()
+
+        # 1) pre-cleaners
+        for st in self._pre:
+            before = text
+            t = perf_counter()
+            text = st.fn(text)
+            dt = (perf_counter() - t) * 1000.0
+            if self._enable_metrics:
+                c = self._count(before, st.pattern)
+                report["counts"][st.label] = c
+                report["timings_ms"][st.label] = round(dt, 3)
+                report["steps"].append(st.label)
+
+        # 2) pinglish (optional)
+        if self._enable_pinglish:
+            t = perf_counter()
+            text = pinglish_convert(text)
+            if self._enable_metrics:
+                report["timings_ms"]["pinglish"] = round(
+                    (perf_counter() - t) * 1000.0, 3
+                )
+                report["steps"].append("pinglish")
+
+        # 3) Parsivar (optional)
+        if self._pv:
+            t = perf_counter()
+            text = self._pv(text)
+            if self._enable_metrics:
+                report["timings_ms"]["parsivar"] = round(
+                    (perf_counter() - t) * 1000.0, 3
+                )
+                report["steps"].append("parsivar")
+
+        # 4) Hazm (optional)
+        if self._hz:
+            t = perf_counter()
+            text = self._hz(text)
+            if self._enable_metrics:
+                report["timings_ms"]["hazm"] = round((perf_counter() - t) * 1000.0, 3)
+                report["steps"].append("hazm")
+
+        # 5) post-cleaners
+        for st in self._post:
+            before = text
+            t = perf_counter()
+            text = st.fn(text)
+            dt = (perf_counter() - t) * 1000.0
+            if self._enable_metrics:
+                c = self._count(before, st.pattern)
+                report["counts"][st.label] = c
+                report["timings_ms"][st.label] = round(dt, 3)
+                report["steps"].append(st.label)
+
+        if self._enable_metrics:
+            report["total_ms"] = round((perf_counter() - t0) * 1000.0, 3)
+            self.last_report = report
+
+        return (text, report) if return_report else text
+
+    def _count(self, before: str, pattern) -> int:
+        """Count matches in the 'before' text using a compiled regex or list of them."""
+        if not pattern:
+            return 0
+        if isinstance(pattern, list):
+            return sum(len(p.findall(before)) for p in pattern)
+        return len(pattern.findall(before))
+
+    def __repr__(self) -> str:
+        return (
+            "NormalizerPipeline(pre=%d, pinglish=%s, parsivar=%s, hazm=%s, post=%d, metrics=%s)"
+            % (
+                len(self._pre),
+                self._enable_pinglish,
+                self._enable_parsivar,
+                self._enable_hazm,
+                len(self._post),
+                self._enable_metrics,
+            )
+        )
+
+
+_FIX_PUNCT = re.compile(r"\s+([ØŒ.!ØŸØ›:Â»\]\)])")
+_FIX_OPEN = re.compile(r"([Â«\[\(])\s+")
+_ZWNJ = "\u200c"
+# [ EMAILâ€Œ ] / [ MENTION ] -> [EMAIL] / [MENTION]
+_PH = re.compile(r"\[\s*([A-Z" + _ZWNJ + r"]+)\s*\]")
+
+
+def _tidy_text(s: str) -> str:
+    """Normalize spaces around punctuation/brackets and fix placeholders like [MENTION]."""
+
+    s = (
+        s.replace("\u00a0", " ")  # NBSP
+        .replace("\u202f", " ")  # NNBSP
+        .replace("\u2007", " ")  # figure space
+        .replace("\u2009", " ")  # thin space
+    )
+
+    s = _FIX_PUNCT.sub(r"\1", s)
+    s = _FIX_OPEN.sub(r"\1", s)
+
+    def _ph(m):
+        inner = m.group(1).replace(_ZWNJ, "")
+        return f"[{inner}]"
+
+    s = _PH.sub(_ph, s)
+
+    s = re.sub(r"\u200c+(?=\s|[ØŒ.!ØŸØ›:Â»\]\)\}\[\(\{])", "", s)
+    s = re.sub(r"(?<=\s)\u200c+", "", s)
+    s = re.sub(r"\u200c+(?=$)", "", s)
+    s = re.sub(r" {2,}", " ", s)
+
+    return s.strip()
+
+
+def create_normalizer_pipeline(**kwargs) -> NormalizerPipeline:
+    """
+    Build a NormalizerPipeline.
+
+    Parameters
+    ----------
+    enable_* : bool
+        Toggles for individual cleaners (quotes_dashes/url/email/mention/hashtag/phone/nonbmp) and pinglish conversion.
+    enable_parsivar : bool
+        Enable Parsivar normalizer stage (default: True).
+    enable_hazm : bool
+        Enable Hazm normalizer stage (default: True).
+    parsivar_cfg : dict, optional
+        Keyword-args forwarded to Parsivar normalizer (unknown keys ignored).
+    hazm_cfg : dict, optional
+        Keyword-args forwarded to Hazm normalizer (unknown keys ignored).
+    enable_metrics : bool
+        If True, per-step timings and regex match counts are collected.
+    collapse_keep_newlines : bool
+        If True, collapse only horizontal spaces and keep paragraph breaks (two newlines).
+
+    Returns
+    -------
+    NormalizerPipeline
+        Callable object. Call with `return_report=True` to also get a metrics dict.
+
+    Examples
+    --------
+    >>> pipe = create_normalizer_pipeline(enable_metrics=True, enable_parsivar=True, enable_hazm=False)
+    >>> text, rep = pipe("contact me at a@b.com", return_report=True)
+    """
+    return NormalizerPipeline(**kwargs)
+
+
+# Backward-compatible functional API
+def normalize(
+    text: str, hazm_cfg: Dict[str, Any] = None, parsivar_cfg: Dict[str, Any] = None
+) -> str:
+    """Legacy one-shot function kept for compatibility."""
+    pipe = create_normalizer_pipeline(hazm_cfg=hazm_cfg, parsivar_cfg=parsivar_cfg)
+    return pipe(text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\spell_pkg\__init__.py ====================
+from .pipeline import create_spell_pipeline
+
+__all__ = ["create_spell_pipeline"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\spell_pkg\pipeline.py ====================
+from typing import List
+from .steps import SpellStep, ParsivarSpellStep, TransformerSpellStep
+import re
+
+
+class SpellPipeline:
+    def __init__(self, steps: List[SpellStep]):
+        self.steps = steps
+
+    def __call__(self, text: str) -> str:
+        for s in self.steps:
+            text = s.apply(text)
+        return _tidy(text)
+
+    def __repr__(self):
+        return (
+            "SpellPipeline("
+            + " -> ".join(s.__class__.__name__ for s in self.steps)
+            + ")"
+        )
+
+
+_FIX_PUNCT = re.compile(r"\s+([ØŒ.!ØŸØ›:Â»\]\)])")
+_FIX_OPEN = re.compile(r"([Â«\[\(])\s+")
+
+
+def _tidy(s: str) -> str:
+    """
+    Remove spaces before closing punctuation and after opening brackets/guillemets.
+    """
+    s = _FIX_PUNCT.sub(r"\1", s)
+    s = _FIX_OPEN.sub(r"\1", s)
+    return s.strip()
+
+
+def create_spell_pipeline(
+    *, use_parsivar: bool = True, use_transformer: bool = False, **kwargs
+) -> SpellPipeline:
+    """
+    Build a spell-correction pipeline.
+
+    Parameters
+    ----------
+    use_parsivar : bool
+        If True (default), include Parsivar's dictionary-based spell checker.
+    use_transformer : bool
+        If True, append a Seq2Seq spell-correction model after Parsivar.
+    **kwargs :
+        Forwarded to TransformerSpellStep (e.g., model_name, device, generate_kwargs).
+
+    Returns
+    -------
+    SpellPipeline
+    """
+    steps: List[SpellStep] = []
+    if use_parsivar:
+        steps.append(ParsivarSpellStep())
+    if use_transformer:
+        steps.append(TransformerSpellStep(**kwargs))
+    if not steps:
+        raise ValueError(
+            "At least one of use_parsivar or use_transformer must be True."
+        )
+    return SpellPipeline(steps)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\spell_pkg\steps\__init__.py ====================
+from .parsivar_step import ParsivarSpellStep
+from .transformer_step import TransformerSpellStep
+from .base import SpellStep
+
+__all__ = ["SpellStep", "ParsivarSpellStep", "TransformerSpellStep"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\spell_pkg\steps\base.py ====================
+from abc import ABC, abstractmethod
+
+
+class SpellStep(ABC):
+    """Abstract base for all spell-checker steps."""
+
+    @abstractmethod
+    def apply(self, text: str) -> str: ...
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\spell_pkg\steps\parsivar_step.py ====================
+from parsivar import SpellCheck
+from .base import SpellStep
+from ..._assets import ensure_parsivar_spell_data
+
+
+class ParsivarSpellStep(SpellStep):
+    """Dictionary / rule-based spell correction via Parsivar."""
+
+    def __init__(self):
+        self._sp = SpellCheck()
+
+    def apply(self, text: str) -> str:
+        # Ensure required 'spell' resources are present (download once if missing)
+        ensure_parsivar_spell_data()
+        return self._sp.spell_corrector(text)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\spell_pkg\steps\transformer_step.py ====================
+from typing import Optional, Dict, Any
+from .base import SpellStep
+from ..._hf_cache import get_text2text_pipeline
+
+
+class TransformerSpellStep(SpellStep):
+    """
+    Context-aware spell correction using a Seq2Seq model (e.g., Persian T5).
+    - Pass a proper Seq2Seq model_name (T5/ByT5 fine-tuned for spelling).
+    """
+
+    def __init__(
+        self,
+        *,
+        model_name: str,
+        device: Optional[int] = None,
+        generate_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        if not model_name:
+            raise ValueError(
+                "TransformerSpellStep requires a Seq2Seq model_name (e.g., a Persian T5 fine-tuned for spell correction)."
+            )
+        self._pipe = get_text2text_pipeline(
+            model_name, -1 if device is None else device
+        )
+        self._gen = {"max_new_tokens": 128, "num_beams": 4}
+        if generate_kwargs:
+            self._gen.update(generate_kwargs)
+
+    def apply(self, text: str) -> str:
+        return self._pipe(text, **self._gen)[0]["generated_text"]
+
+
+# from typing import Optional
+# from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+# from .base import SpellStep
+
+
+# class TransformerSpellStep(SpellStep):
+#     """Context-aware spell correction using a Seq2Seq model (e.g. Nevise v2)."""
+
+#     def __init__(
+#         self,
+#         model_name: str = "HooshvareLab/bert-fa-base-uncased-clf-persian-spell-correct",
+#         *,
+#         device: Optional[str] = None,
+#     ):
+#         self.tok = AutoTokenizer.from_pretrained(model_name)
+#         self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+#         if device:
+#             self.model.to(device)
+#         self.device = device
+
+#     def apply(self, text: str) -> str:
+#         enc = self.tok(text, return_tensors="pt", truncation=True, max_length=256)
+#         if self.device:
+#             enc = {k: v.to(self.device) for k, v in enc.items()}
+#         out_ids = self.model.generate(**enc, num_beams=4, max_length=256)
+#         return self.tok.decode(out_ids[0], skip_special_tokens=True)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\__init__.py ====================
+from .pipeline import create_stem_pipeline
+
+__all__ = ["create_stem_pipeline"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\pipeline.py ====================
+from typing import List
+from .steps import StemStep, HazmStemStep, ParsivarStemStep, CombinedStemStep
+
+
+class StemPipeline:
+    def __init__(self, steps: List[StemStep]):
+        self.steps = steps
+
+    def __call__(self, text: str) -> str:
+        for s in self.steps:
+            text = s.apply(text)
+        return text
+
+    def __repr__(self):
+        return (
+            "StemPipeline("
+            + " -> ".join(s.__class__.__name__ for s in self.steps)
+            + ")"
+        )
+
+
+def create_stem_pipeline(
+    *, use_hazm: bool = True, use_parsivar: bool = True, prefer_past: bool = False
+) -> StemPipeline:
+    """
+    Build a stemming pipeline.
+
+    Parameters
+    ----------
+    use_hazm : bool
+        If True, enable Hazm stemmer.
+    use_parsivar : bool
+        If True, enable Parsivar stems (present/past split aware).
+    prefer_past : bool
+        If True, pick the past stem for verbs, else present.
+
+    Returns
+    -------
+    StemPipeline
+    """
+    steps: List[StemStep] = []
+    if use_hazm and use_parsivar:
+        steps.append(CombinedStemStep(prefer_past=prefer_past))
+    elif use_parsivar:
+        steps.append(ParsivarStemStep(prefer_past=prefer_past))
+    elif use_hazm:
+        steps.append(HazmStemStep())
+    else:
+        raise ValueError("At least one of use_hazm or use_parsivar must be True.")
+    return StemPipeline(steps)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\steps\__init__.py ====================
+from .base import StemStep
+from .hazm_step import HazmStemStep
+from .parsivar_step import ParsivarStemStep
+from .combined_step import CombinedStemStep
+
+__all__ = ["StemStep", "HazmStemStep", "ParsivarStemStep", "CombinedStemStep"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\steps\base.py ====================
+from abc import ABC, abstractmethod
+
+
+class StemStep(ABC):
+    @abstractmethod
+    def apply(self, text: str) -> str: ...
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\steps\combined_step.py ====================
+from __future__ import annotations
+from typing import List
+from parsivar import FindStems
+from hazm import Stemmer, word_tokenize
+from .base import StemStep
+from ...utils.constants import SPLIT_RE, PUNCT
+from ...utils.textutils import detokenize
+
+
+class CombinedStemStep(StemStep):
+    """Parsivar primary (choose present/past), Hazm fallback if no change."""
+
+    def __init__(self, *, prefer_past: bool = False):
+        self._pv = FindStems()
+        self._hz = Stemmer()
+        self._past = prefer_past
+
+    def _pick(self, s: str) -> str:
+        parts = SPLIT_RE.split(s)
+        if len(parts) > 1:
+            return parts[0] if self._past else parts[1]
+        return s
+
+    def apply(self, text: str) -> str:
+        toks: List[str] = word_tokenize(text)
+        out_tokens: List[str] = []
+        for t in toks:
+            s = self._pv.convert_to_stem(t)
+            chosen = self._pick(s)
+            if chosen == t:
+                chosen = self._hz.stem(t)
+            out_tokens.append(chosen)
+        return detokenize(out_tokens, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\steps\hazm_step.py ====================
+from __future__ import annotations
+from typing import List
+from hazm import Stemmer, word_tokenize
+from .base import StemStep
+from ...utils.constants import PUNCT
+from ...utils.textutils import detokenize
+
+
+class HazmStemStep(StemStep):
+    def __init__(self):
+        self._hz = Stemmer()
+
+    def apply(self, text: str) -> str:
+        toks: List[str] = word_tokenize(text)
+        stems = [self._hz.stem(t) for t in toks]
+        return detokenize(stems, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stem_pkg\steps\parsivar_step.py ====================
+from __future__ import annotations
+from typing import List
+from parsivar import FindStems
+from hazm import word_tokenize
+from .base import StemStep
+from ...utils.constants import SPLIT_RE, PUNCT
+from ...utils.textutils import detokenize
+
+
+class ParsivarStemStep(StemStep):
+    def __init__(self, *, prefer_past: bool = False):
+        self._pv = FindStems()
+        self._past = prefer_past
+
+    def _pick(self, s: str) -> str:
+        parts = SPLIT_RE.split(s)
+        if len(parts) > 1:
+            return parts[0] if self._past else parts[1]
+        return s
+
+    def apply(self, text: str) -> str:
+        toks: List[str] = word_tokenize(text)
+        out_tokens: List[str] = [self._pick(self._pv.convert_to_stem(t)) for t in toks]
+        return detokenize(out_tokens, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stopword_pkg\__init__.py ====================
+from .pipeline import create_stopword_pipeline
+
+__all__ = ["create_stopword_pipeline"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stopword_pkg\pipeline.py ====================
+from typing import List, Optional
+from .steps import StopwordStep, HazmStopwordStep
+
+
+class StopwordPipeline:
+    def __init__(self, steps: List[StopwordStep]):
+        self.steps = steps
+
+    def __call__(self, text: str) -> str:
+        for s in self.steps:
+            text = s.apply(text)
+        return text
+
+    def __repr__(self):
+        return (
+            "StopwordPipeline("
+            + " -> ".join(s.__class__.__name__ for s in self.steps)
+            + ")"
+        )
+
+
+def create_stopword_pipeline(
+    extra_stopwords: Optional[List[str]] = None,
+) -> StopwordPipeline:
+    """
+    Build a stopword-removal pipeline.
+
+    Parameters
+    ----------
+    extra_stopwords : list of str, optional
+        Additional stopwords to include on top of Hazm's list.
+
+    Returns
+    -------
+    StopwordPipeline
+    """
+    steps: List[StopwordStep] = [HazmStopwordStep(extra=extra_stopwords)]
+    return StopwordPipeline(steps)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stopword_pkg\steps\__init__.py ====================
+from .base import StopwordStep
+from .hazm_step import HazmStopwordStep
+
+__all__ = ["StopwordStep", "HazmStopwordStep"]
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stopword_pkg\steps\base.py ====================
+from abc import ABC, abstractmethod
+
+
+class StopwordStep(ABC):
+    @abstractmethod
+    def apply(self, text: str) -> str: ...
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\stopword_pkg\steps\hazm_step.py ====================
+from __future__ import annotations
+from typing import Set, List, Optional
+from hazm import word_tokenize, stopwords_list
+from .base import StopwordStep
+from ...utils.constants import PUNCT
+from ...utils.textutils import detokenize
+
+
+class HazmStopwordStep(StopwordStep):
+    """Remove stopwords using Hazm's list (with optional extras)."""
+
+    def __init__(self, extra: Optional[List[str]] = None):
+        base: Set[str] = set(stopwords_list())
+        if extra:
+            base.update(extra)
+        self.stopwords = base
+
+    def apply(self, text: str) -> str:
+        tokens: List[str] = word_tokenize(text)
+        kept: List[str] = [t for t in tokens if t not in self.stopwords]
+        return detokenize(kept, PUNCT)
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\utils\constants.py ====================
+# preproc_pkg/utils/constants.py
+import re
+
+# Shared punctuation set for Persian-aware detokenization.
+PUNCT = {"ØŒ", ".", "!", "ØŸ", "Ø›", ":", "â€¦", "Â»", "Â«", "(", ")", "[", "]", ","}
+
+# Shared split regex used by Hazm/Parsivar to encode past|present.
+SPLIT_RE = re.compile(r"[#&|/]+")
+
+
+==================== FILE: E:\ITRC_Preproc\Persian-text-preprocessing\preproc_pkg\utils\textutils.py ====================
+from typing import List, Set
+
+
+def detokenize(tokens: List[str], punct: Set[str]) -> str:
+    """
+    Join tokens with Persian-aware spacing rules:
+    - Attach RIGHT_ATTACH punctuation to the previous token without space.
+    - Attach LEFT_ATTACH punctuation to the next token without space.
+    - Do not insert spaces around JOINERS (hyphen/dashes).
+    """
+    out = ""
+    for t in tokens:
+        out = (out.rstrip() + t) if t in punct else (out + " " + t)
+    return out.strip()
+
+
