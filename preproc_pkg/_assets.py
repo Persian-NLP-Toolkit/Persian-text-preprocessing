@@ -1,5 +1,9 @@
 from __future__ import annotations
-import os, io, zipfile, pathlib, urllib.request
+import io
+import os
+import pathlib
+import urllib.request
+import zipfile
 
 _PARSIVAR_SPELL_URL = "https://www.dropbox.com/s/tlyvnzv1ha9y1kl/spell.zip?dl=1"
 
@@ -7,7 +11,7 @@ _PARSIVAR_SPELL_URL = "https://www.dropbox.com/s/tlyvnzv1ha9y1kl/spell.zip?dl=1"
 def ensure_parsivar_spell_data(
     url: str = _PARSIVAR_SPELL_URL, timeout: int = 60
 ) -> str:
-    """Ensure Parsivar spell resources exist; download once if missing. Returns dst dir."""
+    """Ensure Parsivar spell resources exist and download them once if missing."""
     import parsivar
 
     dst = os.path.join(os.path.dirname(parsivar.__file__), "resource", "spell")
