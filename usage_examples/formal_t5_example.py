@@ -1,4 +1,4 @@
-#   pip install preproc-pkg[formalizer] -c constraints/py38-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#   python -m pip install "preproc-pkg[formalizer]" -c ../constraints/py38-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 from preproc_pkg import create_formal_pipeline
 
